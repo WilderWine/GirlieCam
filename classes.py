@@ -29,6 +29,7 @@ class Mask:
 class User:
     name: str
     email: str
+    password: str
     masks: List[Mask]
     stickers: List[Sticker]
     filters: List[Filter]

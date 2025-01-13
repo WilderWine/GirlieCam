@@ -1,6 +1,7 @@
 #from doctest import master
 #from logging import exception
 #from os import uname, close
+import re
 import os
 import time
 import base64
@@ -11,12 +12,14 @@ import cv2
 import firebase_admin
 #import requests
 from firebase_admin import credentials, db
+#import pyrebase
 #from numpy.ma.core import filled, masked
 #from pyparsing import alphas
 #from uritemplate import expand
 from threading import Thread, Lock
 from PIL import Image, ImageTk
 import numpy as np
+from classes import User, Filter, Mask, Sticker
 
 class Gallery:
     def __init__(self, master):
@@ -57,8 +60,6 @@ class Gallery:
         global edit_image
         edit_image = path
         set_page(2)
-
-
 
 class ScrollablePanel:
     def __init__(self, master):
@@ -192,8 +193,59 @@ class CameraViewer:
 
 cred = credentials.Certificate('girliecam-firebase-adminsdk-no9ee-a4c71905f6.json')
 firebase_admin.initialize_app(cred, {"databaseURL": "https://girliecam-default-rtdb.firebaseio.com/"})
+#config = {"databaseURL": "https://girliecam-default-rtdb.firebaseio.com/"}
 
 ref = db.reference("/")
+
+def register_user(email: str, password: str):
+    def sanitize_email(email):
+        return email.replace('.', '_dot_').replace('@', '_at_')
+    try:
+        email_key = email.lower()
+        new_name = email_key.split('@')[0]
+        email_key = sanitize_email(email_key)
+        user_ref = db.reference(f'users/{email_key}')
+
+
+        if user_ref.get() is None:
+            user_ref.set({
+                'name': new_name,
+                'password': password,
+                'filters': {},
+                'stickers': {},
+                'masks': {}
+            })
+            print("Successfully resistered!")
+            return True
+        else:
+            print("User exists!")
+            return False
+    except Exception as e:
+        print(f"Error while register: {e}")
+        return False
+
+def login_user(email: str, password: str):
+    def sanitize_email(email):
+        return email.replace('.', '_dot_').replace('@', '_at_')
+    try:
+        email_key = email.lower()
+        email_key = sanitize_email(email_key)
+        user_ref = db.reference(f'users/{email_key}')
+        user_data = user_ref.get()
+        if user_data is not None:
+            if user_data['password'] == password:
+                print("Successfully entered!")
+                print("Userdata:", user_data)
+                return user_data
+            else:
+                print("Wrong password!")
+                return None
+        else:
+            print("No such user!")
+    except Exception as e:
+        print(f"Error while login: {e}")
+        return None
+
 
 root = tk.Tk()
 root.geometry(f"{root.winfo_screenwidth()}x{root.winfo_screenheight()}")
@@ -237,6 +289,7 @@ smile_image = "images/smile.png"
 
 edit_image = None
 current = 0
+current_user = None
 pages = [login_page, camera_page, editor_page, gallery_page, profile_page]
 
 
@@ -347,7 +400,61 @@ def take_photo():
 
 
 def login():
+    def is_valid_email(em):
+        pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        return re.match(pattern, em) is not None
+    global current_user
+    email = login_entry_li.get()
+    pwd1 = pwd_entry_li.get()
+    res = None
+    if is_valid_email(email):
+        res = login_user(email, pwd1)
+        print(res)
+    if res is None:
+        current_user = None
+    else:
+        filters = []
+        for filter_name, filter_values in res.get('filters', {}).items():
+            filters.append(Filter(**filter_values, name=filter_name))
+
+        stickers = []
+        for sticker_name, image_code in res.get('stickers', {}).items():
+            stickers.append(Sticker(name=sticker_name, img=base64_to_png(image_code)))
+
+        masks = []
+        for mask_name, mask_values in res.get('masks', {}).items():
+            masks.append(Mask(
+                name=mask_name,
+                eye_r=base64_to_png(mask_values['eye_r']),
+                eye_l=base64_to_png(mask_values['eye_l']),
+                nose=base64_to_png(mask_values['nose']),
+                mouth=base64_to_png(mask_values['mouth'])
+            ))
+        current_user = User(name=res['name'], email=email,password=res['password'], filters=filters,
+                            stickers=stickers,  masks=masks)
+    if current_user is not None:
+        user_lbl.config(text=current_user.name)
+        user_lbl_gal.config(text=current_user.name)
+        save_button_filters.pack(padx=10, side=tk.LEFT)
+        save_button_mask.pack(padx=10, side=tk.LEFT)
+        save_button_filters_editor.pack(padx=10, side=tk.LEFT)
+        save_button_mask_editor.pack(padx=10, side=tk.LEFT)
+        save_button_sticker_editor.pack(side=tk.LEFT)
+
     set_page(1)
+
+def register():
+    def is_valid_email(em):
+        pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        return re.match(pattern, em) is not None
+    email = login_entry_su.get()
+    pwd1 = pwd_entry_su.get()
+    pwd2 = pwd_entry2_su.get()
+    if is_valid_email(email) and pwd1 == pwd2:
+        res = register_user(email, pwd1)
+        print(res)
+
+
 
 def switch_login_mode():
     global login_mode
@@ -405,7 +512,7 @@ login_button_su = tk.Button(button_frame_su, bg="#292a5e", width=15, height=1, t
 login_button_su.pack(side=tk.LEFT, padx=10)
 
 signup_button = tk.Button(button_frame_su, bg="#292a5e", width=15, height=1, text="Sign Up", highlightcolor="#292a5e", highlightbackground="#090914",
-                             font=("Normal", 20), activebackground="#292a5e", bd=2, fg="white", command=login)
+                             font=("Normal", 20), activebackground="#292a5e", bd=2, fg="white", command=register)
 signup_button.pack(side=tk.LEFT, padx=10)
 
 info_label_su = tk.Label(signup_panel, text="Create your profile", fg="#FFFFFF", font=("Normal", 25), bg="#292a5e")
@@ -483,8 +590,8 @@ checkbox_filters = tk.Checkbutton(checkbox_frame_filters, variable=use_custom_va
 checkbox_filters.pack(side=tk.LEFT)
 label_text_filters = tk.Label(checkbox_frame_filters, text="Use Custom", fg='white', bg='#090914')
 label_text_filters.pack(padx=10,side=tk.LEFT)
-save_button_filters = tk.Button(checkbox_frame_filters, text="Save", command=on_button_click, bg="#090914", fg="white")
-save_button_filters.pack(padx=10, side=tk.LEFT)
+save_button_filters = tk.Button(checkbox_frame_filters, text="Save", command=on_button_click, bg="#090914", fg="white", )
+
 fixed_length = 10
 
 ranges = [
@@ -544,7 +651,6 @@ checkbox_frame_masks.pack(pady=(0, 10))
 label_text = tk.Label(checkbox_frame_masks, text="Use Custom", fg='white', bg='#090914')
 label_text.pack(padx=10,side=tk.LEFT)
 save_button_mask = tk.Button(checkbox_frame_masks, text="Save", command=on_button_click, bg="#090914", fg="white")
-save_button_mask.pack(padx=10, side=tk.LEFT)
 
 # Фиксированные строки
 fixed_names_masks = ['Eye Right', 'Eye Left ', 'Nose      ', 'Mouth    ']
@@ -635,7 +741,6 @@ checkbox_filters_editor.pack(side=tk.LEFT)
 label_text_filters_editor = tk.Label(checkbox_frame_filters_editor, text="Use Custom", fg='white', bg='#090914')
 label_text_filters_editor.pack(padx=10,side=tk.LEFT)
 save_button_filters_editor = tk.Button(checkbox_frame_filters_editor, text="Save", command=on_button_click_editor, bg="#090914", fg="white")
-save_button_filters_editor.pack(padx=10, side=tk.LEFT)
 fixed_length = 10
 
 sliders_editor = []
@@ -696,7 +801,6 @@ checkbox_frame_masks_editor.pack(pady=(0, 10))
 label_text_editor = tk.Label(checkbox_frame_masks_editor, text="Use Custom", fg='white', bg='#090914')
 label_text_editor.pack(padx=10,side=tk.LEFT)
 save_button_mask_editor = tk.Button(checkbox_frame_masks_editor, text="Save", command=on_button_click_editor, bg="#090914", fg="white")
-save_button_mask_editor.pack(padx=10, side=tk.LEFT)
 
 file_labels_masks_editor = []
 
@@ -742,7 +846,6 @@ choose_button_sticker_editor = tk.Button(add_sticker_frame_editor, text="Choose"
 choose_button_sticker_editor.pack(side=tk.LEFT)
 
 save_button_sticker_editor = tk.Button(add_sticker_frame_editor, text="Clear", command=save_sticker_editor, bg="#090914", fg="white")
-save_button_sticker_editor.pack(side=tk.LEFT)
 
 
 
