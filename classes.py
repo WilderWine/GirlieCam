@@ -8,7 +8,7 @@ class Filter:
     contrast: int
     saturation: float
     gauss_blur: int
-    sharpness: float
+    sharpness: int
     blackwhite: int
     name: str
 

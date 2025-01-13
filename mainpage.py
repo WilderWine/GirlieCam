@@ -62,7 +62,7 @@ class Gallery:
         set_page(2)
 
 class ScrollablePanel:
-    def __init__(self, master):
+    def __init__(self, master, button_command=None):
         self.frame = tk.Frame(master, borderwidth=0,highlightbackground="#090914")
         self.canvas = tk.Canvas(self.frame, height=75, width=350, bg='#090914', borderwidth=0,highlightbackground="#090914")
         self.scrollbar = ttk.Scrollbar(self.frame, orient="horizontal", command=self.canvas.xview,)
@@ -77,7 +77,7 @@ class ScrollablePanel:
 
         self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
         self.canvas.configure(xscrollcommand=self.scrollbar.set)
-
+        self.button_command = button_command
         self.canvas.pack(side="top", fill="both", expand=True)
         self.scrollbar.pack(side="bottom", fill="x")
         #self.frame.pack()
@@ -92,8 +92,8 @@ class ScrollablePanel:
 
         element_frame = tk.Frame(self.scrollable_frame, bg='#090914',  highlightcolor='#090914')
         element_frame.pack(side="left", padx=(0, 20))
-
-        button = tk.Button(element_frame, image=photo, command=lambda: print(name), bg='#090914', borderwidth=0,  activebackground="#090914",
+        button_command = self.button_command
+        button = tk.Button(element_frame, image=photo, command=lambda: button_command(name), bg='#090914', borderwidth=0,  activebackground="#090914",
                      highlightbackground="#090914", bd=0)
         button.image = photo
         button.pack()
@@ -155,21 +155,41 @@ class CameraViewer:
                 self.frame = frame
 
     def update_image(self):
+        global current_filter_cam
+        global custom_filter
+        def apply_filter(fr, index):
+            if index == 0:
+                return fr
+            elif index == 1:
+                return cv2.cvtColor(fr, cv2.COLOR_BGR2GRAY)
+            elif index == 2:
+                return cv2.convertScaleAbs(fr, beta=-250)
+            elif index == -1:
+                # custom_filter = {'brightness' : 0, 'contrast': 1, 'gauss_blur': 0, 'saturation': 0, 'sharpness': 0, 'blackwhite': 0}
+                brightness = int(custom_filter['brightness'])
+                contrast = int(custom_filter['contrast'])
+                gauss_blur = int(custom_filter['gauss_blur'])+1
+                saturation = float(custom_filter['saturation'])
+                sharpness = int(custom_filter['sharpness'])+1
+                blackwhite = int(custom_filter['blackwhite'])
+                fr = cv2.convertScaleAbs(fr, alpha=contrast, beta=brightness)
+                fr = cv2.GaussianBlur(fr, (gauss_blur, gauss_blur), 0)
+                hsv = cv2.cvtColor(fr, cv2.COLOR_BGR2HSV)
+                hsv[..., 1] = hsv[..., 1] * saturation
+                fr = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+                kernel = np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]])
+                kernel1 = np.multiply(kernel, sharpness)
+                fr = cv2.filter2D(fr, -1, kernel1)
+                if blackwhite == 1:
+                    fr = cv2.cvtColor(fr, cv2.COLOR_BGR2GRAY)
+                return fr
+            else:
+                return fr
         with self.lock:
             if self.frame is not None:
                 # Convert the image to a format suitable for Tkinter
                 frame = cv2.cvtColor(self.frame, cv2.COLOR_BGR2RGB)
-               # gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                frame = cv2.convertScaleAbs(frame, alpha=1, beta=2) # контраст + яркость
-                hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-                hsv[..., 1] = hsv[..., 1] * 2 # насыщенность
-                frame = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
-                kernel = np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]])
-                kernel = np.multiply(kernel, 10)
-                frame = cv2.filter2D(frame, -1, kernel)
-                frame = cv2.GaussianBlur(frame, (1, 1), 0)
-                #frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                # Calculate the new dimensions of the image, preserving the aspect ratio
+                frame = apply_filter(frame, current_filter_cam)
                 frame_width = self.middle_frame.winfo_width()
                 aspect_ratio = frame.shape[1] / frame.shape[0]
                 new_width = frame_width
@@ -388,6 +408,10 @@ def close_panel_camera():
     close_button.pack_forget()
     panel_btn.pack(padx=30, pady=20, side=tk.RIGHT)
 
+
+
+
+
 def take_photo():
     photo = app.current_img
     gallery_path = os.path.join(os.path.expanduser('~'), 'Gallery')
@@ -440,6 +464,8 @@ def login():
         save_button_filters_editor.pack(padx=10, side=tk.LEFT)
         save_button_mask_editor.pack(padx=10, side=tk.LEFT)
         save_button_sticker_editor.pack(side=tk.LEFT)
+        for f in current_user.filters:
+            filters_panel.add_element(custom_image, f.name)
 
     set_page(1)
 
@@ -530,6 +556,25 @@ angry_label_su.pack(side=tk.TOP, anchor=tk.SW, pady=10)
 
 # camera
 
+def filter_cam_click(filter_name: str):
+    global current_filter_cam
+    global current_user
+    if filter_name == "No filter":
+        current_filter_cam = 0
+    elif filter_name == "Gray shade":
+        current_filter_cam = 1
+    elif filter_name == "Negative":
+        current_filter_cam = 2
+    else:
+        if current_user is None:
+            return
+        for ii,f in enumerate(current_user.filters):
+            if f.name == filter_name:
+                current_filter_cam = ii+3
+                break
+
+current_filter_cam = 0
+custom_filter = {'brightness' : 0, 'contrast': 1, 'gauss_blur': 0, 'saturation': 0, 'sharpness': 0, 'blackwhite': 0}
 
 upper_panel = tk.Frame(camera_page, bg="#090914", height=100)
 user_btn = tk.Button(upper_panel, width=60, height=60, bg="#090914", activebackground="#090914",
@@ -567,18 +612,40 @@ side_panel = tk.Frame(camera_page, bg="#090914", width=400)
 filters_label = tk.Label(side_panel, text="Filters:", bg='#090914', fg='white')
 filters_label.pack(pady=5)
 
-filters_panel = ScrollablePanel(side_panel)
+filters_panel = ScrollablePanel(side_panel, filter_cam_click)
 filters_panel.add_element(no_image, "No filter")
 filters_panel.add_element(gray_image, "Gray shade")
 filters_panel.add_element(negative_image, "Negative")
-filters_panel.add_element(custom_image, "Custom1")
 filters_panel.pack(pady=5)
 
-def update_label(slider_index):
-    pass
+#custom_filter = {'brightness' : 0, 'contrast': 1, 'gauss_blur': 0, 'saturation': 0, 'sharpness': 0, 'blackwhite': 0}
+def update_label(slider_index, value):
+    global custom_filter
+    if slider_index == 0:
+        custom_filter['brightness']=value
+    elif slider_index == 1:
+        custom_filter['contrast'] = value
+    elif slider_index == 2:
+        custom_filter['sharpness'] = value
+    elif slider_index == 3:
+        custom_filter['gauss_blur'] = value
+    elif slider_index == 4:
+        custom_filter['saturation'] = value
+    elif slider_index == 5:
+        custom_filter['blackwhite'] = value
+
 def on_button_click():
     values = [slider.get() for slider in sliders]
     print("Значения слайдеров:", values)
+
+def on_checkbutton_change_cam():
+    global current_filter_cam
+    if use_custom_var_filters.get():
+        current_filter_cam = -1
+    else:
+        current_filter_cam = 0
+
+
 
 panel = tk.Frame(side_panel, width=350, bg='#090914')
 panel.pack(fill=tk.X, padx=5, pady=10)
@@ -586,7 +653,8 @@ panel.pack(fill=tk.X, padx=5, pady=10)
 checkbox_frame_filters = tk.Frame(panel, bg='#090914')
 checkbox_frame_filters.pack(pady=(0, 5))
 use_custom_var_filters = tk.IntVar()
-checkbox_filters = tk.Checkbutton(checkbox_frame_filters, variable=use_custom_var_filters, bg='#090914', fg='black', bd=0, highlightthickness=0)
+checkbox_filters = tk.Checkbutton(checkbox_frame_filters, variable=use_custom_var_filters, bg='#090914', fg='black', bd=0, highlightthickness=0,
+                                  command=on_checkbutton_change_cam)
 checkbox_filters.pack(side=tk.LEFT)
 label_text_filters = tk.Label(checkbox_frame_filters, text="Use Custom", fg='white', bg='#090914')
 label_text_filters.pack(padx=10,side=tk.LEFT)
@@ -598,7 +666,7 @@ ranges = [
     (-300, 200, 1, 0, 'Brightness'),
     (1, 10, 1, 1, 'Contrast'),
     (-10, 10, 1, 0,'Sharpness'),
-    (0, 50, 1, 0, 'Blur'),
+    (0, 50, 2, 0, 'Blur'),
     (-5, 5, 0.1, 0,'Saturation'),
     (0, 1, 1, 0, 'B/W'),
 ]
@@ -610,7 +678,7 @@ for i, (min_val, max_val, step, val, name) in enumerate(ranges):
     row_frame.pack(fill=tk.X, padx=5, pady=5)
     label1 = tk.Label(row_frame, text=name, width=fixed_length, bg='#090914', fg='white')
     label1.pack(side=tk.LEFT)
-    slider = tk.Scale(row_frame, from_=min_val, to=max_val, resolution=step, orient=tk.HORIZONTAL, command=lambda value, index=i: update_label(index),
+    slider = tk.Scale(row_frame, from_=min_val, to=max_val, resolution=step, orient=tk.HORIZONTAL, command=lambda value, index=i: update_label(index, value),
                       bg='#090914', fg='white', bd=0,  highlightthickness=0)
     slider.set(val)
     slider.pack(side=tk.LEFT, padx=5, fill=tk.X)
@@ -707,28 +775,102 @@ middle_panel_gal.pack(padx=0, pady=0, side=tk.LEFT, fill=tk.BOTH, expand=True)
 
 # editor
 
+def apply_filter_editor():
 
+    global current_filter_editor
+    img = cv2.imread(edit_image)
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+    if current_filter_editor == 0:
+        pass
+    elif current_filter_editor == 1:
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    elif current_filter_editor == 2:
+        img = cv2.convertScaleAbs(img, beta=-250)
+    elif current_filter_editor == -1:
+        # custom_filter = {'brightness' : 0, 'contrast': 1, 'gauss_blur': 0, 'saturation': 0, 'sharpness': 0, 'blackwhite': 0}
+        brightness = int(custom_filter_editor['brightness'])
+        contrast = int(custom_filter_editor['contrast'])
+        gauss_blur = int(custom_filter_editor['gauss_blur']) + 1
+        saturation = float(custom_filter_editor['saturation'])
+        sharpness = int(custom_filter_editor['sharpness']) + 1
+        blackwhite = int(custom_filter_editor['blackwhite'])
+        img = cv2.convertScaleAbs(img, alpha=contrast, beta=brightness)
+        img = cv2.GaussianBlur(img, (gauss_blur, gauss_blur), 0)
+        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+        hsv[..., 1] = hsv[..., 1] * saturation
+        img = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+        kernel = np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]])
+        kernel1 = np.multiply(kernel, sharpness)
+        img = cv2.filter2D(img, -1, kernel1)
+        if blackwhite == 1:
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+    image = Image.fromarray(img)
+    image.thumbnail((1800, 900))
+    photo = ImageTk.PhotoImage(image)
+    image_label.config(image=photo)
+    image_label.image = photo
+    image_label.bind("<Button-1>", on_image_click)
+
+
+def filter_edit_click(filter_name: str):
+    global current_filter_editor
+    global current_user
+    if filter_name == "No filter":
+        current_filter_editor = 0
+    elif filter_name == "Gray shade":
+        current_filter_editor = 1
+    elif filter_name == "Negative":
+        current_filter_editor = 2
+    else:
+        for ii,f in enumerate(current_user.filters):
+            if f.name == filter_name:
+                current_filter_editor = ii+3
+                break
+    apply_filter_editor()
 
 side_panel_edit = tk.Frame(editor_page, bg="#090914", width=400)
 side_panel_edit.pack(side=tk.RIGHT, fill=tk.Y)
 
-
+current_filter_editor = 0
+custom_filter_editor = {'brightness' : 0, 'contrast': 1, 'gauss_blur': 0, 'saturation': 0, 'sharpness': 0, 'blackwhite': 0}
 
 filters_label_editor = tk.Label(side_panel_edit, text="Filters:", bg='#090914', fg='white')
 filters_label_editor.pack(pady=5)
 
-filters_panel_editor = ScrollablePanel(side_panel_edit)
+filters_panel_editor = ScrollablePanel(side_panel_edit, filter_edit_click)
 filters_panel_editor.add_element(no_image, "No filter")
 filters_panel_editor.add_element(gray_image, "Gray shade")
 filters_panel_editor.add_element(negative_image, "Negative")
-filters_panel_editor.add_element(custom_image, "Custom1")
 filters_panel_editor.pack(pady=5)
 
-def update_label_editor(slider_index):
-    pass
+def update_label_editor(slider_index, value):
+    global custom_filter_editor
+    if slider_index == 0:
+        custom_filter_editor['brightness'] = value
+    elif slider_index == 1:
+        custom_filter_editor['contrast'] = value
+    elif slider_index == 2:
+        custom_filter_editor['sharpness'] = value
+    elif slider_index == 3:
+        custom_filter_editor['gauss_blur'] = value
+    elif slider_index == 4:
+        custom_filter_editor['saturation'] = value
+    elif slider_index == 5:
+        custom_filter_editor['blackwhite'] = value
+    apply_filter_editor()
+
 def on_button_click_editor():
     values = [slider.get() for slider in sliders_editor]
     print("Значения слайдеров:", values)
+
+def on_checkbutton_change_editor():
+    global current_filter_editor
+    if use_custom_var_filters_editor.get():
+        current_filter_editor = -1
+    else:
+        current_filter_editor = 0
 
 panel_editor = tk.Frame(side_panel_edit, width=350, bg='#090914')
 panel_editor.pack(fill=tk.X, padx=5, pady=10)
@@ -736,7 +878,8 @@ panel_editor.pack(fill=tk.X, padx=5, pady=10)
 checkbox_frame_filters_editor = tk.Frame(panel_editor, bg='#090914')
 checkbox_frame_filters_editor.pack(pady=(0, 5))
 use_custom_var_filters_editor = tk.IntVar()
-checkbox_filters_editor = tk.Checkbutton(checkbox_frame_filters_editor, variable=use_custom_var_filters_editor, bg='#090914', fg='black', bd=0, highlightthickness=0)
+checkbox_filters_editor = tk.Checkbutton(checkbox_frame_filters_editor, variable=use_custom_var_filters_editor, bg='#090914', fg='black', bd=0, highlightthickness=0,
+                                         command=on_checkbutton_change_editor)
 checkbox_filters_editor.pack(side=tk.LEFT)
 label_text_filters_editor = tk.Label(checkbox_frame_filters_editor, text="Use Custom", fg='white', bg='#090914')
 label_text_filters_editor.pack(padx=10,side=tk.LEFT)
@@ -751,7 +894,7 @@ for i, (min_val, max_val, step, val, name) in enumerate(ranges):
     row_frame_editor.pack(fill=tk.X, padx=5, pady=5)
     label1_editor = tk.Label(row_frame_editor, text=name, width=fixed_length, bg='#090914', fg='white')
     label1_editor.pack(side=tk.LEFT)
-    slider_editor = tk.Scale(row_frame_editor, from_=min_val, to=max_val, resolution=step, orient=tk.HORIZONTAL, command=lambda value, index=i: update_label_editor(index),
+    slider_editor = tk.Scale(row_frame_editor, from_=min_val, to=max_val, resolution=step, orient=tk.HORIZONTAL, command=lambda value, index=i: update_label_editor(index, value),
                       bg='#090914', fg='white', bd=0,  highlightthickness=0)
     slider_editor.set(val)
     slider_editor.pack(side=tk.LEFT, padx=5, fill=tk.X)
