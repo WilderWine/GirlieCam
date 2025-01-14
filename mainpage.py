@@ -5,6 +5,7 @@ import re
 import os
 import time
 import base64
+from io import BytesIO
 #import dlib
 import tkinter as tk
 from tkinter import ttk, filedialog
@@ -313,20 +314,31 @@ current_user = None
 pages = [login_page, camera_page, editor_page, gallery_page, profile_page]
 
 
-def base64_to_png(base64_string, output_file_path):
-    # Декодирование строки Base64
+def base64_to_png(base64_string):
     image_data = base64.b64decode(base64_string)
-    with open(output_file_path, "wb") as image_file:
-        # Запись в файл
-        image_file.write(image_data)
+    image = Image.open(BytesIO(image_data))
+    return image
 
 def png_to_base64(file_path):
     with open(file_path, "rb") as image_file:
-        # Чтение изображения в двоичном формате
         image_data = image_file.read()
-        # Кодирование в Base64
         base64_string = base64.b64encode(image_data).decode('utf-8')
         return base64_string
+
+
+def overlay_image_alpha(img, img_overlay, x, y, alpha_mask):
+    y1, y2 = max(0, y), min(img.shape[0], y + img_overlay.shape[0])
+    x1, x2 = max(0, x), min(img.shape[1], x + img_overlay.shape[1])
+    y1o, y2o = max(0, -y), min(img_overlay.shape[0], img.shape[0] - y)
+    x1o, x2o = max(0, -x), min(img_overlay.shape[1], img.shape[1] - x)
+    if y1 >= y2 or x1 >= x2 or y1o >= y2o or x1o >= x2o:
+        return
+    img_crop = img[y1:y2, x1:x2]
+    img_overlay_crop = img_overlay[y1o:y2o, x1o:x2o]
+    alpha = alpha_mask[y1o:y2o, x1o:x2o, np.newaxis]
+    alpha_inv = 1.0 - alpha
+    img_crop[:] = alpha * img_overlay_crop + alpha_inv * img_crop
+
 
 def next_page():
     global current
@@ -339,10 +351,48 @@ def previous_page():
         set_page(current -1)
 
 def on_image_click(event):
-    # Получаем координаты клика
+    global current_user
+    global current_sticker
+
+    if current_sticker == -2:
+        return
     x = event.x
     y = event.y
-    print(f"Кликнули на координатах: ({x}, {y})")
+    img = np.array(image_label.original_image)
+
+
+
+
+    overlay_image = None
+    if current_sticker == -1 and add_sticker_file_label_editor.cget("text") is None:
+        overlay_image = None
+    elif current_sticker == -1:
+        overlay_image = Image.open(add_sticker_file_label_editor.cget("text"))
+    elif current_sticker == 0:
+        overlay_image = Image.open(trash_image)
+    elif current_sticker == 1:
+        overlay_image = Image.open(smile_image)
+    else:
+        overlay_image = current_user.stickers[current_sticker-2].img
+
+    if overlay_image is None:
+        return
+
+    img_overlay_rgba = np.array(overlay_image.convert("RGBA"))
+
+    alpha_mask = img_overlay_rgba[:, :, 3] / 255.0
+    img_result = img[:, :, :3].copy()
+    img_overlay = img_overlay_rgba[:, :, :3]
+
+    overlay_image_alpha(img_result, img_overlay, x, y, alpha_mask)
+
+    img = Image.fromarray(img_result)
+    imgtk = ImageTk.PhotoImage(img)
+    image_label.original_image = img
+    image_label.config(image=imgtk)
+    image_label.image=imgtk
+
+    print(f"Должен быть стикер: {current_sticker}")
 
 def set_page(index: int):
     global current
@@ -364,9 +414,10 @@ def set_page(index: int):
         app.stop_camera()
 
     if index == 2:
-        image = Image.open(edit_image)
-        image.thumbnail((1800, 900))
-        photo = ImageTk.PhotoImage(image)
+        image_ = Image.open(edit_image)
+        image_.thumbnail((1800, 900))
+        photo = ImageTk.PhotoImage(image_)
+        image_label.original_image=image_
         image_label.config(image=photo)
         image_label.image = photo
         image_label.bind("<Button-1>", on_image_click)
@@ -810,6 +861,7 @@ def apply_filter_editor():
     image.thumbnail((1800, 900))
     photo = ImageTk.PhotoImage(image)
     image_label.config(image=photo)
+    image_label.original_image = image
     image_label.image = photo
     image_label.bind("<Button-1>", on_image_click)
 
@@ -935,6 +987,7 @@ masks_panel_editor.add_element(custom_image, "Image 3")
 masks_panel_editor.add_element(custom_image, "Image 4")
 masks_panel_editor.pack(pady=5)
 
+
 # Строка с чекбоксом
 use_custom_var_masks_editor = tk.IntVar()
 checkbox_frame_masks_editor = tk.Frame(side_panel_edit, bg='#090914')
@@ -967,14 +1020,43 @@ for name in fixed_names_masks:
     clear_button_mask_editor = tk.Button(row_frame_editor, text="Clear", command=lambda idx=len(file_labels_masks_editor)-1: clear_file_editor(idx), bg="#090914", fg="white")
     clear_button_mask_editor.pack(side=tk.LEFT)
 
+current_sticker = -2
+def stickers_click(filter_name: str):
+    global current_sticker
+    if filter_name == "Trash Can":
+        current_sticker = -2 if current_sticker == 0 else 0
+    elif filter_name == "Smile":
+        current_sticker = -2 if current_sticker == 1 else 1
+    else:
+        for ii , st in enumerate(current_user.stickers):
+            if st.name == filter_name:
+                current_sticker = -2 if current_sticker == ii+2 else ii+2
+                return
 
 stickers_label_editor = tk.Label(side_panel_edit, text="Stickers:", bg='#090914', fg='white')
 stickers_label_editor.pack(pady=5)
 
-stickers_panel_editor = ScrollablePanel(side_panel_edit)
+stickers_panel_editor = ScrollablePanel(side_panel_edit, stickers_click)
 stickers_panel_editor.add_element(trash_image, "Trash Can")
 stickers_panel_editor.add_element(smile_image, "Smile")
 stickers_panel_editor.pack(pady=5)
+
+def on_checkbutton_change_st_edit():
+    global current_sticker
+    if use_custom_var_sticker_editor.get():
+        current_sticker = -1
+    else:
+        current_sticker = -2
+
+use_custom_var_sticker_editor = tk.IntVar()
+use_custom_sticker_editor = tk.Frame(side_panel_edit, bg='#090914')
+checkbox_sticker_editor = tk.Checkbutton(use_custom_sticker_editor, variable=use_custom_var_sticker_editor, bg='#090914', fg='black', bd=0, highlightthickness=0,
+                                         command=on_checkbutton_change_st_edit)
+checkbox_sticker_editor.pack(side=tk.LEFT)
+use_custom_sticker_editor.pack(pady=(0, 10))
+label_text_editor = tk.Label(use_custom_sticker_editor, text="Use Custom", fg='white', bg='#090914')
+label_text_editor.pack(padx=10,side=tk.LEFT)
+save_button_sticker_editor = tk.Button(use_custom_sticker_editor, text="Save", command=on_button_click_editor, bg="#090914", fg="white")
 
 add_sticker_frame_editor = tk.Frame(side_panel_edit, bg='#090914')
 add_sticker_frame_editor.pack(fill=tk.X, padx=5, pady=2)
