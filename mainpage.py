@@ -6,7 +6,7 @@ import os
 import time
 import base64
 from io import BytesIO
-#import dlib
+import dlib
 import tkinter as tk
 from tkinter import ttk, filedialog
 import cv2
@@ -158,6 +158,99 @@ class CameraViewer:
     def update_image(self):
         global current_filter_cam
         global custom_filter
+        global current_mask_cam
+        global file_labels_masks
+        def apply_mask(fr, index=2):
+            if index == 0:
+                return fr
+
+            gray_image_ = cv2.cvtColor(fr, cv2.COLOR_BGR2GRAY)
+            faces = face_detector(gray_image_)
+            for face in faces:
+                landmarks = landmark_predictor(gray_image_, face)
+
+                eye_l_coords = [landmarks.part(37).x-5, landmarks.part(37).y-5,
+                                landmarks.part(38).x - landmarks.part(37).x + 10,
+                                landmarks.part(41).y - landmarks.part(37).y+ 10]
+                eye_r_coords = [landmarks.part(43).x-5, landmarks.part(43).y-5,
+                                landmarks.part(44).x - landmarks.part(43).x+ 10,
+                                landmarks.part(47).y - landmarks.part(43).y+ 10]
+                mouth_coords = [landmarks.part(48).x-10, landmarks.part(50).y-10,
+                                landmarks.part(54).x - landmarks.part(48).x+ 20,
+                                landmarks.part(57).y - landmarks.part(50).y+ 20]
+                nose_coords = [landmarks.part(31).x-10, landmarks.part(28).y-10,
+                               landmarks.part(35).x - landmarks.part(31).x+ 20,
+                               landmarks.part(33).y - landmarks.part(28).y+ 20]
+
+                eye_l_img = None
+                eye_r_img = None
+                nose_img = None
+                mouth_img = None
+                fr_rgb = fr
+                #pil_fr = Image.fromarray(fr_rgb)
+
+                if index == 1:
+                    eye_l_img = Image.open(red_horror_eye).resize((eye_l_coords[2], eye_l_coords[3]), Image.LANCZOS)
+                    eye_r_img = Image.open(red_horror_eye).resize((eye_r_coords[2], eye_r_coords[3]), Image.LANCZOS)
+                    mouth_img = Image.open(red_horror_mouth).resize((mouth_coords[2], mouth_coords[3]), Image.LANCZOS)
+                elif index == 2:
+                    eye_l_img = Image.open(purple_horror_eye).resize((eye_l_coords[2], eye_l_coords[3]), Image.LANCZOS)
+                    eye_r_img = Image.open(purple_horror_eye).resize((eye_r_coords[2], eye_r_coords[3]), Image.LANCZOS)
+                    mouth_img = Image.open(purple_horror_mouth).resize((mouth_coords[2], mouth_coords[3]), Image.LANCZOS)
+                elif index == -1:
+                    eye_l_img = None if file_labels_masks[1].cget("text") == "" else Image.open(file_labels_masks[1].cget("text"))
+                    eye_r_img = None if file_labels_masks[0].cget("text") == "" else Image.open(file_labels_masks[0].cget("text"))
+                    nose_img = None if file_labels_masks[2].cget("text") == "" else Image.open(file_labels_masks[2].cget("text"))
+                    mouth_img = None if file_labels_masks[3].cget("text") == "" else Image.open(file_labels_masks[3].cget("text"))
+                   # eye_l_path = None
+                   # eye_r_path = None
+                   # nose_path = None
+                   # mouth_path = None
+                else:
+                    if current_user is not None:
+                        m = current_user.masks[index - 3]
+                        if m is not None:
+                            eye_l_img = m.eye_l
+                            eye_r_img = m.eye_r
+                            nose_img = m.nose
+                            mouth_img = m.mouth
+
+
+                eye_l_img_rgba = None if eye_l_img is None else np.array(eye_l_img.convert("RGBA"))
+                eye_r_img_rgba = None if eye_r_img is None else np.array(eye_r_img.convert("RGBA"))
+                nose_img_rgba = None if nose_img is None else np.array(nose_img.convert("RGBA"))
+                mouth_img_rgba = None if mouth_img is None else np.array(mouth_img.convert("RGBA"))
+
+                if eye_l_img_rgba is not None:
+                    alpha_mask = eye_l_img_rgba[:, :, 3] / 255.0
+                    img_result = fr_rgb[:, :, :3].copy()
+                    img_overlay = eye_l_img_rgba[:, :, :3]
+                    overlay_image_alpha(img_result, img_overlay, eye_l_coords[0], eye_l_coords[1], alpha_mask)
+                    fr_rgb = img_result
+                if eye_r_img_rgba is not None:
+                    alpha_mask = eye_r_img_rgba[:, :, 3] / 255.0
+                    img_result = fr_rgb[:, :, :3].copy()
+                    img_overlay = eye_r_img_rgba[:, :, :3]
+                    overlay_image_alpha(img_result, img_overlay, eye_r_coords[0], eye_r_coords[1], alpha_mask)
+                    fr_rgb = img_result
+                if nose_img_rgba is not None:
+                    alpha_mask = nose_img_rgba[:, :, 3] / 255.0
+                    img_result = fr_rgb[:, :, :3].copy()
+                    img_overlay = nose_img_rgba[:, :, :3]
+                    overlay_image_alpha(img_result, img_overlay, nose_coords[0], nose_coords[1], alpha_mask)
+                    fr_rgb = img_result
+                if mouth_img_rgba is not None:
+                    alpha_mask = mouth_img_rgba[:, :, 3] / 255.0
+                    img_result = fr_rgb[:, :, :3].copy()
+                    img_overlay = mouth_img_rgba[:, :, :3]
+                    overlay_image_alpha(img_result, img_overlay, mouth_coords[0], mouth_coords[1], alpha_mask)
+                    fr_rgb = img_result
+
+                fr = fr_rgb
+            return fr
+
+
+
         def apply_filter(fr, index):
             if index == 0:
                 return fr
@@ -190,6 +283,7 @@ class CameraViewer:
             if self.frame is not None:
                 # Convert the image to a format suitable for Tkinter
                 frame = cv2.cvtColor(self.frame, cv2.COLOR_BGR2RGB)
+                frame = apply_mask(frame, current_mask_cam)
                 frame = apply_filter(frame, current_filter_cam)
                 frame_width = self.middle_frame.winfo_width()
                 aspect_ratio = frame.shape[1] / frame.shape[0]
@@ -214,6 +308,12 @@ class CameraViewer:
 
 cred = credentials.Certificate('girliecam-firebase-adminsdk-no9ee-a4c71905f6.json')
 firebase_admin.initialize_app(cred, {"databaseURL": "https://girliecam-default-rtdb.firebaseio.com/"})
+
+face_detector = dlib.get_frontal_face_detector()
+predictor_path = "shape_predictor_68_face_landmarks.dat"
+landmark_predictor = dlib.shape_predictor(predictor_path)
+
+
 #config = {"databaseURL": "https://girliecam-default-rtdb.firebaseio.com/"}
 
 ref = db.reference("/")
@@ -303,6 +403,8 @@ custom_image = "images/custom.png"
 gray_image ="images/gray.png"
 red_horror_eye = "images/red_horror.png"
 purple_horror_eye = "images/purple_horror.png"
+red_horror_mouth = "images/red_horror_m.png"
+purple_horror_mouth = "images/purple_horror_m.png"
 trash_image = "images/trash.png"
 smile_image = "images/smile.png"
 
@@ -359,9 +461,6 @@ def on_image_click(event):
     x = event.x
     y = event.y
     img = np.array(image_label.original_image)
-
-
-
 
     overlay_image = None
     if current_sticker == -1 and add_sticker_file_label_editor.cget("text") is None:
@@ -460,11 +559,19 @@ def close_panel_camera():
     panel_btn.pack(padx=30, pady=20, side=tk.RIGHT)
 
 
-
-
-
 def take_photo():
     photo = app.current_img
+    gallery_path = os.path.join(os.path.expanduser('~'), 'Gallery')
+    if not os.path.exists(gallery_path):
+        os.makedirs(gallery_path)
+
+    current_time = int(time.time() * 1000)
+    filename = os.path.join(gallery_path, f"img_{current_time}.jpg")
+    photo.save(filename, 'JPEG')
+
+
+def take_photo_editor():
+    photo = image_label.original_image
     gallery_path = os.path.join(os.path.expanduser('~'), 'Gallery')
     if not os.path.exists(gallery_path):
         os.makedirs(gallery_path)
@@ -624,7 +731,26 @@ def filter_cam_click(filter_name: str):
                 current_filter_cam = ii+3
                 break
 
+
+def mask_cam_click(mask_name: str):
+    global current_mask_cam
+    global current_user
+    if mask_name == "No":
+        current_mask_cam = 0
+    elif mask_name == "Red Horror":
+        current_mask_cam = 1
+    elif mask_name == "Blue Horror":
+        current_mask_cam = 2
+    else:
+        if current_user is None:
+            return
+        for ii,f in enumerate(current_user.masks):
+            if f.name == mask_name:
+                current_mask_cam = ii+3
+                break
+
 current_filter_cam = 0
+current_mask_cam = 0
 custom_filter = {'brightness' : 0, 'contrast': 1, 'gauss_blur': 0, 'saturation': 0, 'sharpness': 0, 'blackwhite': 0}
 
 upper_panel = tk.Frame(camera_page, bg="#090914", height=100)
@@ -752,19 +878,24 @@ def clear_file(row_index):
 masks_label = tk.Label(side_panel, text="Masks:", bg='#090914', fg='white')
 masks_label.pack(pady=5)  # Отступ 60
 
-masks_panel = ScrollablePanel(side_panel)
+masks_panel = ScrollablePanel(side_panel, mask_cam_click)
 masks_panel.add_element(no_image, "No")
 masks_panel.add_element(red_horror_eye, "Red Horror")
 masks_panel.add_element(purple_horror_eye, "Blue Horror")
-masks_panel.add_element(custom_image, "Image 4")
-masks_panel.add_element(custom_image, "Image 3")
-masks_panel.add_element(custom_image, "Image 4")
 masks_panel.pack(pady=5)
+
+def on_checkbutton_change_mask_cam():
+    global current_mask_cam
+    if use_custom_var_masks.get():
+        current_mask_cam = -1
+    else:
+        current_mask_cam = 0
 
 # Строка с чекбоксом
 use_custom_var_masks = tk.IntVar()
 checkbox_frame_masks = tk.Frame(side_panel, bg='#090914')
-checkbox_masks = tk.Checkbutton(checkbox_frame_masks, variable=use_custom_var_masks, bg='#090914', fg='black', bd=0, highlightthickness=0)
+checkbox_masks = tk.Checkbutton(checkbox_frame_masks, variable=use_custom_var_masks, bg='#090914', fg='black', bd=0, highlightthickness=0,
+                                command=on_checkbutton_change_mask_cam)
 checkbox_masks.pack(side=tk.LEFT)
 checkbox_frame_masks.pack(pady=(0, 10))
 label_text = tk.Label(checkbox_frame_masks, text="Use Custom", fg='white', bg='#090914')
@@ -865,6 +996,111 @@ def apply_filter_editor():
     image_label.image = photo
     image_label.bind("<Button-1>", on_image_click)
 
+def  apply_mask_editor():
+    global current_user
+    global current_mask_editor
+    global edit_image
+    global file_labels_masks_editor
+    if current_mask_editor == 0:
+        img = Image.open(edit_image)
+        img.thumbnail((1800, 900))
+        imgtk = ImageTk.PhotoImage(img)
+        image_label.original_image = img
+        image_label.config(image=imgtk)
+        image_label.image = imgtk
+        return
+    fr = cv2.imread(edit_image)
+    fr = cv2.cvtColor(fr, cv2.COLOR_RGB2BGR)
+    gray_image_ = cv2.cvtColor(fr, cv2.COLOR_BGR2GRAY)
+    faces = face_detector(gray_image_)
+    for face in faces:
+        landmarks = landmark_predictor(gray_image_, face)
+
+        eye_l_coords = [landmarks.part(37).x - 5, landmarks.part(37).y - 5,
+                        landmarks.part(38).x - landmarks.part(37).x + 10,
+                        landmarks.part(41).y - landmarks.part(37).y + 10]
+        eye_r_coords = [landmarks.part(43).x - 5, landmarks.part(43).y - 5,
+                        landmarks.part(44).x - landmarks.part(43).x + 10,
+                        landmarks.part(47).y - landmarks.part(43).y + 10]
+        mouth_coords = [landmarks.part(48).x - 10, landmarks.part(50).y - 10,
+                        landmarks.part(54).x - landmarks.part(48).x + 20,
+                        landmarks.part(57).y - landmarks.part(50).y + 20]
+        nose_coords = [landmarks.part(31).x - 10, landmarks.part(28).y - 10,
+                       landmarks.part(35).x - landmarks.part(31).x + 20,
+                       landmarks.part(33).y - landmarks.part(28).y + 20]
+
+        eye_l_img = None
+        eye_r_img = None
+        nose_img = None
+        mouth_img = None
+        fr_rgb = fr
+
+        if current_mask_editor == 1:
+            eye_l_img = Image.open(red_horror_eye).resize((eye_l_coords[2], eye_l_coords[3]), Image.LANCZOS)
+            eye_r_img = Image.open(red_horror_eye).resize((eye_r_coords[2], eye_r_coords[3]), Image.LANCZOS)
+            mouth_img = Image.open(red_horror_mouth).resize((mouth_coords[2], mouth_coords[3]), Image.LANCZOS)
+        elif current_mask_editor == 2:
+            eye_l_img = Image.open(purple_horror_eye).resize((eye_l_coords[2], eye_l_coords[3]), Image.LANCZOS)
+            eye_r_img = Image.open(purple_horror_eye).resize((eye_r_coords[2], eye_r_coords[3]), Image.LANCZOS)
+            mouth_img = Image.open(purple_horror_mouth).resize((mouth_coords[2], mouth_coords[3]), Image.LANCZOS)
+        elif current_mask_editor == -1:
+            eye_l_img = None if file_labels_masks_editor[1].cget("text") == "" else Image.open(
+                file_labels_masks_editor[1].cget("text"))
+            eye_r_img = None if file_labels_masks_editor[0].cget("text") == "" else Image.open(
+                file_labels_masks_editor[0].cget("text"))
+            nose_img = None if file_labels_masks_editor[2].cget("text") == "" else Image.open(
+                file_labels_masks_editor[2].cget("text"))
+            mouth_img = None if file_labels_masks_editor[3].cget("text") == "" else Image.open(
+                file_labels_masks_editor[3].cget("text"))
+        else:
+            if current_user is not None:
+                m = current_user.masks[current_mask_editor - 3]
+                if m is not None:
+                    eye_l_img = m.eye_l
+                    eye_r_img = m.eye_r
+                    nose_img = m.nose
+                    mouth_img = m.mouth
+
+        eye_l_img_rgba = None if eye_l_img is None else np.array(eye_l_img.convert("RGBA"))
+        eye_r_img_rgba = None if eye_r_img is None else np.array(eye_r_img.convert("RGBA"))
+        nose_img_rgba = None if nose_img is None else np.array(nose_img.convert("RGBA"))
+        mouth_img_rgba = None if mouth_img is None else np.array(mouth_img.convert("RGBA"))
+
+        if eye_l_img_rgba is not None:
+            alpha_mask = eye_l_img_rgba[:, :, 3] / 255.0
+            img_result = fr_rgb[:, :, :3].copy()
+            img_overlay = eye_l_img_rgba[:, :, :3]
+            overlay_image_alpha(img_result, img_overlay, eye_l_coords[0], eye_l_coords[1], alpha_mask)
+            fr_rgb = img_result
+        if eye_r_img_rgba is not None:
+            alpha_mask = eye_r_img_rgba[:, :, 3] / 255.0
+            img_result = fr_rgb[:, :, :3].copy()
+            img_overlay = eye_r_img_rgba[:, :, :3]
+            overlay_image_alpha(img_result, img_overlay, eye_r_coords[0], eye_r_coords[1], alpha_mask)
+            fr_rgb = img_result
+        if nose_img_rgba is not None:
+            alpha_mask = nose_img_rgba[:, :, 3] / 255.0
+            img_result = fr_rgb[:, :, :3].copy()
+            img_overlay = nose_img_rgba[:, :, :3]
+            overlay_image_alpha(img_result, img_overlay, nose_coords[0], nose_coords[1], alpha_mask)
+            fr_rgb = img_result
+        if mouth_img_rgba is not None:
+            alpha_mask = mouth_img_rgba[:, :, 3] / 255.0
+            img_result = fr_rgb[:, :, :3].copy()
+            img_overlay = mouth_img_rgba[:, :, :3]
+            overlay_image_alpha(img_result, img_overlay, mouth_coords[0], mouth_coords[1], alpha_mask)
+            fr_rgb = img_result
+        fr = fr_rgb
+
+    img = Image.fromarray(fr)
+    img.thumbnail((1800, 900))
+    imgtk = ImageTk.PhotoImage(img)
+    image_label.original_image = img
+    image_label.config(image=imgtk)
+    image_label.image = imgtk
+
+
+
 
 def filter_edit_click(filter_name: str):
     global current_filter_editor
@@ -882,9 +1118,45 @@ def filter_edit_click(filter_name: str):
                 break
     apply_filter_editor()
 
+def mask_edit_click(mask_name: str):
+    global current_mask_editor
+    global current_user
+    if mask_name == "No":
+        current_mask_editor = 0
+    elif mask_name == "Red Horror":
+        current_mask_editor = 1
+    elif mask_name == "Blue Horror":
+        current_mask_editor = 2
+    else:
+        for ii,f in enumerate(current_user.masks):
+            if f.name == mask_name:
+                current_mask_editor = ii+3
+                break
+    apply_mask_editor()
+    
+def mask_cam_click(mask_name: str):
+    global current_mask_editor
+    global current_user
+    if mask_name == "No":
+        current_mask_editor = 0
+    elif mask_name == "Red Horror":
+        current_mask_editor = 1
+    elif mask_name == "Blue Horror":
+        current_mask_editor = 2
+    else:
+        if current_user is None:
+            return
+        for ii,f in enumerate(current_user.masks):
+            if f.name == mask_name:
+                current_mask_editor = ii+3
+                break
+    apply_mask_editor()
+
+
 side_panel_edit = tk.Frame(editor_page, bg="#090914", width=400)
 side_panel_edit.pack(side=tk.RIGHT, fill=tk.Y)
 
+current_mask_editor = 0
 current_filter_editor = 0
 custom_filter_editor = {'brightness' : 0, 'contrast': 1, 'gauss_blur': 0, 'saturation': 0, 'sharpness': 0, 'blackwhite': 0}
 
@@ -923,6 +1195,15 @@ def on_checkbutton_change_editor():
         current_filter_editor = -1
     else:
         current_filter_editor = 0
+    apply_filter_editor()
+        
+def on_checkbutton_change_mask_editor():
+    global current_mask_editor
+    if use_custom_var_masks_editor.get():
+        current_mask_editor = -1
+    else:
+        current_mask_editor = 0
+    apply_mask_editor()
 
 panel_editor = tk.Frame(side_panel_edit, width=350, bg='#090914')
 panel_editor.pack(fill=tk.X, padx=5, pady=10)
@@ -978,20 +1259,18 @@ def choose_file_sticker_editor():
 masks_label_editor = tk.Label(side_panel_edit, text="Masks:", bg='#090914', fg='white')
 masks_label_editor.pack(pady=5)  # Отступ 60
 
-masks_panel_editor = ScrollablePanel(side_panel_edit)
+masks_panel_editor = ScrollablePanel(side_panel_edit, mask_edit_click)
 masks_panel_editor.add_element(no_image, "No")
 masks_panel_editor.add_element(red_horror_eye, "Red Horror")
 masks_panel_editor.add_element(purple_horror_eye, "Blue Horror")
-masks_panel_editor.add_element(custom_image, "Image 4")
-masks_panel_editor.add_element(custom_image, "Image 3")
-masks_panel_editor.add_element(custom_image, "Image 4")
 masks_panel_editor.pack(pady=5)
 
 
 # Строка с чекбоксом
 use_custom_var_masks_editor = tk.IntVar()
 checkbox_frame_masks_editor = tk.Frame(side_panel_edit, bg='#090914')
-checkbox_masks_editor = tk.Checkbutton(checkbox_frame_masks_editor, variable=use_custom_var_masks_editor, bg='#090914', fg='black', bd=0, highlightthickness=0)
+checkbox_masks_editor = tk.Checkbutton(checkbox_frame_masks_editor, variable=use_custom_var_masks_editor, bg='#090914', fg='black', bd=0, highlightthickness=0,
+                                       command=on_checkbutton_change_mask_editor)
 checkbox_masks_editor.pack(side=tk.LEFT)
 checkbox_frame_masks_editor.pack(pady=(0, 10))
 label_text_editor = tk.Label(checkbox_frame_masks_editor, text="Use Custom", fg='white', bg='#090914')
@@ -1070,7 +1349,7 @@ add_sticker_file_label_editor.pack(side=tk.LEFT)
 choose_button_sticker_editor = tk.Button(add_sticker_frame_editor, text="Choose", command=choose_file_sticker_editor, bg="#090914", fg="white")
 choose_button_sticker_editor.pack(side=tk.LEFT)
 
-save_button_sticker_editor = tk.Button(add_sticker_frame_editor, text="Clear", command=save_sticker_editor, bg="#090914", fg="white")
+#save_button_sticker_editor = tk.Button(add_sticker_frame_editor, text="Save", command=save_sticker_editor, bg="#090914", fg="white")
 
 
 
@@ -1080,6 +1359,11 @@ back_btn_edit = tk.Button(upper_panel_edit, width=60, height=60, bg="#090914", a
                      highlightbackground="#090914"  , image=back_image,
                      command=lambda: set_page(3), bd=0)
 back_btn_edit.pack(padx=30, pady=20, side=tk.LEFT)
+
+take_photo_btn_editor = tk.Button(upper_panel_edit, width=90, height=90, bg="#090914", activebackground="#090914",
+                     highlightbackground="#090914"  , image=photo96_image,
+                     bd=0, command=take_photo_editor)
+take_photo_btn_editor.pack(padx=30, pady=20, side=tk.LEFT)
 
 upper_panel_edit.pack(padx=0, pady=0, side=tk.TOP, fill=tk.X)
 
