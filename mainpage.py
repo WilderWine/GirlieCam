@@ -4,23 +4,18 @@
 import re
 import os
 import time
-import base64
-from io import BytesIO
 import dlib
 import tkinter as tk
 from tkinter import ttk, filedialog
 import cv2
 import firebase_admin
-#import requests
 from firebase_admin import credentials, db
-#import pyrebase
-#from numpy.ma.core import filled, masked
-#from pyparsing import alphas
-#from uritemplate import expand
 from threading import Thread, Lock
 from PIL import Image, ImageTk
 import numpy as np
 from classes import User, Filter, Mask, Sticker
+from auth_functions import register_user, login_user
+from   image_functions import  base64_to_png,  overlay_image_alpha,  png_to_base64
 
 class Gallery:
     def __init__(self, master):
@@ -339,54 +334,7 @@ landmark_predictor = dlib.shape_predictor(predictor_path)
 
 ref = db.reference("/")
 
-def register_user(email: str, password: str):
-    def sanitize_email(email):
-        return email.replace('.', '_dot_').replace('@', '_at_')
-    try:
-        email_key = email.lower()
-        new_name = email_key.split('@')[0]
-        email_key = sanitize_email(email_key)
-        user_ref = db.reference(f'users/{email_key}')
 
-
-        if user_ref.get() is None:
-            user_ref.set({
-                'name': new_name,
-                'password': password,
-                'filters': {},
-                'stickers': {},
-                'masks': {}
-            })
-            print("Successfully resistered!")
-            return True
-        else:
-            print("User exists!")
-            return False
-    except Exception as e:
-        print(f"Error while register: {e}")
-        return False
-
-def login_user(email: str, password: str):
-    def sanitize_email(email):
-        return email.replace('.', '_dot_').replace('@', '_at_')
-    try:
-        email_key = email.lower()
-        email_key = sanitize_email(email_key)
-        user_ref = db.reference(f'users/{email_key}')
-        user_data = user_ref.get()
-        if user_data is not None:
-            if user_data['password'] == password:
-                print("Successfully entered!")
-                print("Userdata:", user_data)
-                return user_data
-            else:
-                print("Wrong password!")
-                return None
-        else:
-            print("No such user!")
-    except Exception as e:
-        print(f"Error while login: {e}")
-        return None
 
 
 root = tk.Tk()
@@ -435,32 +383,6 @@ edit_image = None
 current = 0
 current_user = None
 pages = [login_page, camera_page, editor_page, gallery_page, profile_page]
-
-
-def base64_to_png(base64_string):
-    image_data = base64.b64decode(base64_string)
-    image = Image.open(BytesIO(image_data))
-    return image
-
-def png_to_base64(file_path):
-    with open(file_path, "rb") as image_file:
-        image_data = image_file.read()
-        base64_string = base64.b64encode(image_data).decode('utf-8')
-        return base64_string
-
-
-def overlay_image_alpha(img, img_overlay, x, y, alpha_mask):
-    y1, y2 = max(0, y), min(img.shape[0], y + img_overlay.shape[0])
-    x1, x2 = max(0, x), min(img.shape[1], x + img_overlay.shape[1])
-    y1o, y2o = max(0, -y), min(img_overlay.shape[0], img.shape[0] - y)
-    x1o, x2o = max(0, -x), min(img_overlay.shape[1], img.shape[1] - x)
-    if y1 >= y2 or x1 >= x2 or y1o >= y2o or x1o >= x2o:
-        return
-    img_crop = img[y1:y2, x1:x2]
-    img_overlay_crop = img_overlay[y1o:y2o, x1o:x2o]
-    alpha = alpha_mask[y1o:y2o, x1o:x2o, np.newaxis]
-    alpha_inv = 1.0 - alpha
-    img_crop[:] = alpha * img_overlay_crop + alpha_inv * img_crop
 
 
 def next_page():
