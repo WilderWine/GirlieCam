@@ -4,12 +4,12 @@ from PIL import Image
 
 @dataclass
 class Filter:
-    brightness: int
-    contrast: int
-    saturation: float
-    gauss_blur: int
-    sharpness: int
-    blackwhite: int
+    brightness: str
+    contrast: str
+    saturation: str
+    gauss_blur: str
+    sharpness: str
+    blackwhite: str
     name: str
 
 @dataclass

@@ -87,7 +87,9 @@ class ScrollablePanel:
         self.elements = []
 
     def add_element(self, image_path, name):
-        img = Image.open(image_path)
+        img = image_path
+        if isinstance(image_path, str):
+            img = Image.open(image_path)
         img = img.resize((50, 50), Image.LANCZOS)
         photo = ImageTk.PhotoImage(img)
 
@@ -160,6 +162,7 @@ class CameraViewer:
         global custom_filter
         global current_mask_cam
         global file_labels_masks
+        global current_user
         def apply_mask(fr, index=2):
             if index == 0:
                 return fr
@@ -278,7 +281,25 @@ class CameraViewer:
                     fr = cv2.cvtColor(fr, cv2.COLOR_BGR2GRAY)
                 return fr
             else:
+                f = current_user.filters[index - 3]
+                brightness = int(f.brightness)
+                contrast = int(f.contrast)
+                gauss_blur = int(f.gauss_blur) + 1
+                saturation = float(f.saturation)
+                sharpness = int(f.sharpness) + 1
+                blackwhite = int(f.blackwhite)
+                fr = cv2.convertScaleAbs(fr, alpha=contrast, beta=brightness)
+                fr = cv2.GaussianBlur(fr, (gauss_blur, gauss_blur), 0)
+                hsv = cv2.cvtColor(fr, cv2.COLOR_BGR2HSV)
+                hsv[..., 1] = hsv[..., 1] * saturation
+                fr = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+                kernel = np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]])
+                kernel1 = np.multiply(kernel, sharpness)
+                fr = cv2.filter2D(fr, -1, kernel1)
+                if blackwhite == 1:
+                    fr = cv2.cvtColor(fr, cv2.COLOR_BGR2GRAY)
                 return fr
+
         with self.lock:
             if self.frame is not None:
                 # Convert the image to a format suitable for Tkinter
@@ -580,6 +601,140 @@ def take_photo_editor():
     filename = os.path.join(gallery_path, f"img_{current_time}.jpg")
     photo.save(filename, 'JPEG')
 
+def save_filter_cam():
+    global custom_filter
+    global current_user
+    def sanitize_email(email):
+        return email.replace('.', '_dot_').replace('@', '_at_')
+
+    name_ = f"Filter {int(time.time() * 1000)}"
+    new_filter = Filter(name=name_, brightness=custom_filter['brightness'],
+                        contrast=custom_filter['contrast'],
+                        gauss_blur=custom_filter['gauss_blur'], saturation=custom_filter['saturation'],
+                        blackwhite=custom_filter['blackwhite'], sharpness=custom_filter['sharpness'])
+    current_user.filters.append(new_filter)
+    filters_panel.add_element(custom_image, name_)
+    filters_panel_editor.add_element(custom_image, name_)
+
+    filter_ref = db.reference(f'users/{sanitize_email(current_user.email)}/filters/{name_}')
+
+    if filter_ref.get() is None:
+        filter_ref.set(custom_filter)
+
+    print([name_, custom_filter])
+
+def save_mask_cam():
+    def sanitize_email(email):
+        return email.replace('.', '_dot_').replace('@', '_at_')
+
+    eye_l_img = None if file_labels_masks[1].cget("text") == "" else file_labels_masks[1].cget("text")
+    eye_r_img = None if file_labels_masks[0].cget("text") == "" else file_labels_masks[0].cget("text")
+    nose_img = None if file_labels_masks[2].cget("text") == "" else  file_labels_masks[2].cget("text")
+    mouth_img = None if file_labels_masks[3].cget("text") == "" else file_labels_masks[3].cget("text")
+
+    if eye_r_img is None and eye_l_img is None and nose_img is None and mouth_img is None:
+        return
+    eye_l = 'None' if eye_l_img is None else png_to_base64(eye_l_img)
+    eye_r = 'None' if eye_r_img is None else png_to_base64(eye_r_img)
+    nose = 'None' if nose_img is None else png_to_base64(nose_img)
+    mouth = 'None' if mouth_img is None else png_to_base64(mouth_img)
+
+    name_ = f"Mask {int(time.time() * 1000)}"
+
+    im_eye_l  = None  if  eye_l_img is None else Image.open(eye_l_img)
+    im_eye_r = None if eye_r_img is None else Image.open(eye_r_img)
+    im_nose = None if nose_img is None else Image.open(nose_img)
+    im_mouth = None if mouth_img is None else Image.open(mouth_img)
+
+    m = Mask(name=name_,  eye_l=im_eye_l, eye_r=im_eye_r, nose=im_nose, mouth=im_mouth)
+    current_user.masks.append(m)
+    masks_panel_editor.add_element(custom_image, name_)
+    masks_panel.add_element(custom_image,  name_)
+
+    mask_ref = db.reference(f'users/{sanitize_email(current_user.email)}/masks/{name_}')
+
+    if mask_ref.get() is None:
+        mask_ref.set({'eye_l': eye_l, 'eye_r': eye_r, 'nose': nose, 'mouth': mouth})
+
+    print([name_, {'eye_l': eye_l, 'eye_r': eye_r, 'nose': nose, 'mouth': mouth}])
+
+#custom_filter_editor = {'brightness' : '0', 'contrast': '1', 'gauss_blur': '0', 'saturation': '0', 'sharpness': '0', 'blackwhite': '0'}
+def save_filter_editor():
+    global custom_filter_editor
+    global current_user
+    def sanitize_email(email):
+        return email.replace('.', '_dot_').replace('@', '_at_')
+
+    name_ = f"Filter {int(time.time() * 1000)}"
+    new_filter = Filter(name=name_, brightness=custom_filter_editor['brightness'],contrast=custom_filter_editor['contrast'],
+                        gauss_blur=custom_filter_editor['gauss_blur'], saturation=custom_filter_editor['saturation'],
+                        blackwhite=custom_filter_editor['blackwhite'], sharpness=custom_filter_editor['sharpness'])
+    current_user.filters.append(new_filter)
+    filters_panel_editor.add_element(custom_image, name_)
+    filters_panel.add_element(custom_image, name_)
+
+    filter_ref = db.reference(f'users/{sanitize_email(current_user.email)}/filters/{name_}')
+
+    if filter_ref.get() is None:
+        filter_ref.set(custom_filter_editor)
+
+    print([name_, custom_filter_editor])
+
+def save_mask_editor():
+    def sanitize_email(email):
+        return email.replace('.', '_dot_').replace('@', '_at_')
+
+    eye_l_img = None if file_labels_masks_editor[1].cget("text") == "" else file_labels_masks_editor[1].cget("text")
+    eye_r_img = None if file_labels_masks_editor[0].cget("text") == "" else file_labels_masks_editor[0].cget("text")
+    nose_img = None if file_labels_masks_editor[2].cget("text") == "" else file_labels_masks_editor[2].cget("text")
+    mouth_img = None if file_labels_masks_editor[3].cget("text") == "" else file_labels_masks_editor[3].cget("text")
+
+    if eye_r_img is None and eye_l_img is None and nose_img is None and mouth_img is None:
+        return
+    eye_l = 'None' if eye_l_img is None else png_to_base64(eye_l_img)
+    eye_r = 'None' if eye_r_img is None else png_to_base64(eye_r_img)
+    nose = 'None' if nose_img is None else png_to_base64(nose_img)
+    mouth = 'None' if mouth_img is None else png_to_base64(mouth_img)
+
+    name_ = f"Mask {int(time.time() * 1000)}"
+
+    im_eye_l = None if eye_l_img is None else Image.open(eye_l_img)
+    im_eye_r = None if eye_r_img is None else Image.open(eye_r_img)
+    im_nose = None if nose_img is None else Image.open(nose_img)
+    im_mouth = None if mouth_img is None else Image.open(mouth_img)
+
+    m = Mask(name=name_, eye_l=im_eye_l, eye_r=im_eye_r, nose=im_nose, mouth=im_mouth)
+    current_user.masks.append(m)
+    masks_panel_editor.add_element(custom_image, name_)
+    masks_panel.add_element(custom_image, name_)
+
+    mask_ref = db.reference(f'users/{sanitize_email(current_user.email)}/masks/{name_}')
+
+    if mask_ref.get() is None:
+        mask_ref.set({'eye_l': eye_l, 'eye_r': eye_r, 'nose': nose, 'mouth': mouth})
+
+    print([name_, {'eye_l' : eye_l, 'eye_r': eye_r, 'nose': nose, 'mouth': mouth}])
+
+
+def save_sticker_editor():
+    global add_sticker_file_label_editor
+    def sanitize_email(email):
+        return email.replace('.', '_dot_').replace('@', '_at_')
+    img_code = None if add_sticker_file_label_editor.cget("text") == "" else png_to_base64(add_sticker_file_label_editor.cget("text"))
+    if img_code is None:
+        return
+    name_ = f"Sticker {int(time.time() * 1000)}"
+    st = Sticker(name = name_,  img=Image.open(add_sticker_file_label_editor.cget("text")))
+    current_user.stickers.append(st)
+    stickers_panel_editor.add_element(add_sticker_file_label_editor.cget("text"), name_)
+
+    filter_ref = db.reference(f'users/{sanitize_email(current_user.email)}/stickers/{name_}')
+
+    if filter_ref.get() is None:
+        filter_ref.set(img_code)
+
+    print([name_, img_code])
+
 
 def login():
     def is_valid_email(em):
@@ -597,7 +752,10 @@ def login():
     else:
         filters = []
         for filter_name, filter_values in res.get('filters', {}).items():
-            filters.append(Filter(**filter_values, name=filter_name))
+            filters.append(Filter(name=filter_name, brightness=filter_values['brightness'], contrast=filter_values['contrast'],
+                                  gauss_blur=filter_values['gauss_blur'], sharpness=filter_values['sharpness'],
+                                  saturation=filter_values['saturation'], blackwhite=filter_values['blackwhite']))
+
 
         stickers = []
         for sticker_name, image_code in res.get('stickers', {}).items():
@@ -605,12 +763,16 @@ def login():
 
         masks = []
         for mask_name, mask_values in res.get('masks', {}).items():
+            eye_r = None if mask_values['eye_r'] == "None" else base64_to_png(mask_values['eye_r'])
+            eye_l = None if mask_values['eye_l'] == "None" else base64_to_png(mask_values['eye_l'])
+            mouth = None if mask_values['mouth'] == "None" else base64_to_png(mask_values['mouth'])
+            nose = None if mask_values['nose'] == "None" else base64_to_png(mask_values['nose'])
             masks.append(Mask(
                 name=mask_name,
-                eye_r=base64_to_png(mask_values['eye_r']),
-                eye_l=base64_to_png(mask_values['eye_l']),
-                nose=base64_to_png(mask_values['nose']),
-                mouth=base64_to_png(mask_values['mouth'])
+                eye_r=eye_r,
+                eye_l=eye_l,
+                nose=nose,
+                mouth=mouth
             ))
         current_user = User(name=res['name'], email=email,password=res['password'], filters=filters,
                             stickers=stickers,  masks=masks)
@@ -624,6 +786,12 @@ def login():
         save_button_sticker_editor.pack(side=tk.LEFT)
         for f in current_user.filters:
             filters_panel.add_element(custom_image, f.name)
+            filters_panel_editor.add_element(custom_image, f.name)
+        for s in current_user.stickers:
+            stickers_panel_editor.add_element(s.img, s.name)
+        for m in current_user.masks:
+            masks_panel.add_element(custom_image, m.name)
+            masks_panel_editor.add_element(custom_image, m.name)
 
     set_page(1)
 
@@ -751,7 +919,7 @@ def mask_cam_click(mask_name: str):
 
 current_filter_cam = 0
 current_mask_cam = 0
-custom_filter = {'brightness' : 0, 'contrast': 1, 'gauss_blur': 0, 'saturation': 0, 'sharpness': 0, 'blackwhite': 0}
+custom_filter = {'brightness' : '0', 'contrast': '1', 'gauss_blur': '0', 'saturation': '0', 'sharpness': '0', 'blackwhite': '0'}
 
 upper_panel = tk.Frame(camera_page, bg="#090914", height=100)
 user_btn = tk.Button(upper_panel, width=60, height=60, bg="#090914", activebackground="#090914",
@@ -835,7 +1003,8 @@ checkbox_filters = tk.Checkbutton(checkbox_frame_filters, variable=use_custom_va
 checkbox_filters.pack(side=tk.LEFT)
 label_text_filters = tk.Label(checkbox_frame_filters, text="Use Custom", fg='white', bg='#090914')
 label_text_filters.pack(padx=10,side=tk.LEFT)
-save_button_filters = tk.Button(checkbox_frame_filters, text="Save", command=on_button_click, bg="#090914", fg="white", )
+save_button_filters = tk.Button(checkbox_frame_filters, text="Save", bg="#090914", fg="white",
+                                command=save_filter_cam)
 
 fixed_length = 10
 
@@ -900,7 +1069,7 @@ checkbox_masks.pack(side=tk.LEFT)
 checkbox_frame_masks.pack(pady=(0, 10))
 label_text = tk.Label(checkbox_frame_masks, text="Use Custom", fg='white', bg='#090914')
 label_text.pack(padx=10,side=tk.LEFT)
-save_button_mask = tk.Button(checkbox_frame_masks, text="Save", command=on_button_click, bg="#090914", fg="white")
+save_button_mask = tk.Button(checkbox_frame_masks, text="Save", command=save_mask_cam, bg="#090914", fg="white")
 
 # Фиксированные строки
 fixed_names_masks = ['Eye Right', 'Eye Left ', 'Nose      ', 'Mouth    ']
@@ -977,6 +1146,24 @@ def apply_filter_editor():
         saturation = float(custom_filter_editor['saturation'])
         sharpness = int(custom_filter_editor['sharpness']) + 1
         blackwhite = int(custom_filter_editor['blackwhite'])
+        img = cv2.convertScaleAbs(img, alpha=contrast, beta=brightness)
+        img = cv2.GaussianBlur(img, (gauss_blur, gauss_blur), 0)
+        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+        hsv[..., 1] = hsv[..., 1] * saturation
+        img = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+        kernel = np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]])
+        kernel1 = np.multiply(kernel, sharpness)
+        img = cv2.filter2D(img, -1, kernel1)
+        if blackwhite == 1:
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    else:
+        f = current_user.filters[current_filter_editor-3]
+        brightness = int(f.brightness)
+        contrast = int(f.contrast)
+        gauss_blur = int(f.gauss_blur) + 1
+        saturation = float(f.saturation)
+        sharpness = int(f.sharpness) + 1
+        blackwhite = int(f.blackwhite)
         img = cv2.convertScaleAbs(img, alpha=contrast, beta=brightness)
         img = cv2.GaussianBlur(img, (gauss_blur, gauss_blur), 0)
         hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
@@ -1158,7 +1345,7 @@ side_panel_edit.pack(side=tk.RIGHT, fill=tk.Y)
 
 current_mask_editor = 0
 current_filter_editor = 0
-custom_filter_editor = {'brightness' : 0, 'contrast': 1, 'gauss_blur': 0, 'saturation': 0, 'sharpness': 0, 'blackwhite': 0}
+custom_filter_editor = {'brightness' : '0', 'contrast': '1', 'gauss_blur': '0', 'saturation': '0', 'sharpness': '0', 'blackwhite': '0'}
 
 filters_label_editor = tk.Label(side_panel_edit, text="Filters:", bg='#090914', fg='white')
 filters_label_editor.pack(pady=5)
@@ -1216,7 +1403,7 @@ checkbox_filters_editor = tk.Checkbutton(checkbox_frame_filters_editor, variable
 checkbox_filters_editor.pack(side=tk.LEFT)
 label_text_filters_editor = tk.Label(checkbox_frame_filters_editor, text="Use Custom", fg='white', bg='#090914')
 label_text_filters_editor.pack(padx=10,side=tk.LEFT)
-save_button_filters_editor = tk.Button(checkbox_frame_filters_editor, text="Save", command=on_button_click_editor, bg="#090914", fg="white")
+save_button_filters_editor = tk.Button(checkbox_frame_filters_editor, text="Save", command=save_filter_editor, bg="#090914", fg="white")
 fixed_length = 10
 
 sliders_editor = []
@@ -1246,10 +1433,7 @@ def choose_file_editor(row_index):
 
 def clear_file_editor(row_index):
     file_labels_masks_editor[row_index].config(text="")
-    
-def save_sticker_editor():
-    sticker_text = add_sticker_file_label_editor.cget("text")
-    print(sticker_text)
+
 
 def choose_file_sticker_editor():
     file_path = filedialog.askopenfilename(filetypes=[("PNG files", "*.png")])
@@ -1275,7 +1459,7 @@ checkbox_masks_editor.pack(side=tk.LEFT)
 checkbox_frame_masks_editor.pack(pady=(0, 10))
 label_text_editor = tk.Label(checkbox_frame_masks_editor, text="Use Custom", fg='white', bg='#090914')
 label_text_editor.pack(padx=10,side=tk.LEFT)
-save_button_mask_editor = tk.Button(checkbox_frame_masks_editor, text="Save", command=on_button_click_editor, bg="#090914", fg="white")
+save_button_mask_editor = tk.Button(checkbox_frame_masks_editor, text="Save", command=save_mask_editor, bg="#090914", fg="white")
 
 file_labels_masks_editor = []
 
@@ -1335,7 +1519,7 @@ checkbox_sticker_editor.pack(side=tk.LEFT)
 use_custom_sticker_editor.pack(pady=(0, 10))
 label_text_editor = tk.Label(use_custom_sticker_editor, text="Use Custom", fg='white', bg='#090914')
 label_text_editor.pack(padx=10,side=tk.LEFT)
-save_button_sticker_editor = tk.Button(use_custom_sticker_editor, text="Save", command=on_button_click_editor, bg="#090914", fg="white")
+save_button_sticker_editor = tk.Button(use_custom_sticker_editor, text="Save", command=save_sticker_editor, bg="#090914", fg="white")
 
 add_sticker_frame_editor = tk.Frame(side_panel_edit, bg='#090914')
 add_sticker_frame_editor.pack(fill=tk.X, padx=5, pady=2)
